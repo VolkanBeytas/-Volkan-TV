@@ -1,0 +1,19 @@
+VOLKAN TV - iPHONE + GITHUB CODESPACES
+
+1) Bu ZIP dosyasını iPhone'a indir.
+2) Codespaces'te VolkanTV reposunu aç.
+3) Sol taraftaki Explorer/Gezgin bölümünden dosya yükleme (Upload Files) seçeneğini kullan.
+4) ZIP'i repo köküne yükle.
+5) Terminale şu TEK komutu yaz:
+
+   unzip -o VolkanTV-Android11.zip
+
+6) Sonra terminale sırayla:
+
+   git add .
+   git commit -m "Volkan TV v1"
+   git push
+
+7) GitHub repo sayfasında Actions > Volkan TV APK bölümüne gir.
+8) İşlem bittikten sonra Artifacts > Volkan-TV-Android11 dosyasını indir.
+9) İçindeki app-debug.apk dosyasını LocalSend ile Simfer TV'ye gönder ve kur.
