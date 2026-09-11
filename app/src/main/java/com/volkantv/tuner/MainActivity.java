@@ -3,6 +3,7 @@ package com.volkantv.tuner;
 import android.app.Activity;
 import android.content.ContentUris;
 import android.content.Context;
+import android.content.pm.PackageManager;
 import android.database.Cursor;
 import android.graphics.Color;
 import android.graphics.drawable.GradientDrawable;
@@ -12,6 +13,7 @@ import android.media.tv.TvInputInfo;
 import android.media.tv.TvInputManager;
 import android.media.tv.TvView;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -29,28 +31,28 @@ import java.util.Comparator;
 import java.util.List;
 
 public class MainActivity extends Activity {
-    private static final int PERMISSION_REQUEST = 101;
-    private TvView tvView;
+    private static final String READ_TV_LISTINGS = "android.permission.READ_TV_LISTINGS";
+    private static final int PERMISSION_REQUEST = 1001;
+
+    private final Handler handler = new Handler(Looper.getMainLooper());
+    private final ArrayList<ChannelItem> channels = new ArrayList<>();
+
     private FrameLayout root;
+    private TvView tvView;
     private LinearLayout statusBox;
     private TextView diagnostic;
     private LinearLayout infoBar;
-    private TextView channelTitle;
     private TextView channelNumber;
+    private TextView channelTitle;
     private TextView channelSource;
-    private TextView programTitle;
-    private TextView programTime;
     private LinearLayout channelPanel;
     private ListView channelListView;
-    private TextView panelSummary;
+    private ChannelAdapter adapter;
     private LinearLayout numberBox;
     private TextView numberDisplay;
 
-    private List<ChannelItem> channels = new ArrayList<>();
-    private ChannelAdapter adapter;
     private int currentIndex = -1;
     private int highlightedIndex = -1;
-    private Handler handler = new Handler(Looper.getMainLooper());
     private StringBuilder numberBuffer = new StringBuilder();
 
     static class ChannelItem {
@@ -88,7 +90,22 @@ public class MainActivity extends Activity {
         createNumberBox();
 
         showStatus("Simfer TV altyapı kontrol ediliyor...");
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            if (checkSelfPermission(READ_TV_LISTINGS) != PackageManager.PERMISSION_GRANTED) {
+                requestPermissions(new String[]{READ_TV_LISTINGS}, PERMISSION_REQUEST);
+                return;
+            }
+        }
         loadTvSystem();
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == PERMISSION_REQUEST) {
+            loadTvSystem();
+        }
     }
 
     private void hideSystemUi() {
@@ -114,8 +131,6 @@ public class MainActivity extends Activity {
             @Override
             public void onVideoAvailable(String inputId) {
                 hideStatus();
-                showStatus("Kaynak görüntü yeniden kodlanmadan gösteriliyor.");
-                handler.postDelayed(MainActivity.this::hideStatus, 4000);
             }
 
             @Override
@@ -132,7 +147,6 @@ public class MainActivity extends Activity {
                 showStatus("TV Input Manager hatası!");
                 return;
             }
-
             loadChannels();
         } catch (Exception e) {
             showStatus("Sistem hatası: " + e.getMessage());
@@ -193,7 +207,9 @@ public class MainActivity extends Activity {
             }
         });
 
-        adapter.notifyDataSetChanged();
+        if (adapter != null) {
+            adapter.notifyDataSetChanged();
+        }
         tuneChannel(0);
     }
 
@@ -206,7 +222,6 @@ public class MainActivity extends Activity {
         try {
             tvView.tune(c.inputId, channelUri);
 
-            // SES VE HOPARLÖR DÜZELTMESİ
             AudioManager am = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
             if (am != null) {
                 am.requestAudioFocus(null, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN);
@@ -230,7 +245,7 @@ public class MainActivity extends Activity {
         handler.postDelayed(hideInfoRunnable, 5000);
     }
 
-    private Runnable hideInfoRunnable = () -> infoBar.setVisibility(View.GONE);
+    private final Runnable hideInfoRunnable = () -> infoBar.setVisibility(View.GONE);
 
     private void showStatus(String msg) {
         diagnostic.setText(msg);
@@ -315,7 +330,7 @@ public class MainActivity extends Activity {
         channelPanel.setPadding(dp(16), dp(16), dp(16), dp(16));
         channelPanel.setBackgroundColor(Color.parseColor("#F0101010"));
 
-        panelSummary = new TextView(this);
+        TextView panelSummary = new TextView(this);
         panelSummary.setText("KANALLAR (OK ile seç)");
         panelSummary.setTextColor(Color.parseColor("#FFD700"));
         panelSummary.setTextSize(16);
@@ -426,7 +441,7 @@ public class MainActivity extends Activity {
         handler.postDelayed(commitNumberRunnable, 2000);
     }
 
-    private Runnable commitNumberRunnable = () -> {
+    private final Runnable commitNumberRunnable = () -> {
         String num = numberBuffer.toString();
         numberBuffer.setLength(0);
         numberBox.setVisibility(View.GONE);
@@ -456,4 +471,3 @@ public class MainActivity extends Activity {
         }
     }
 }
-
