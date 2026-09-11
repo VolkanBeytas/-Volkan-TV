@@ -7,10 +7,11 @@ import android.content.pm.PackageManager;
 import android.database.Cursor;
 import android.graphics.Color;
 import android.graphics.drawable.GradientDrawable;
+import android.media.AudioAttributes;
+import android.media.AudioFocusRequest;
 import android.media.AudioManager;
 import android.media.tv.TvContract;
-import android.media.tv.TvInputInfo;
-import android.media.tv.TvInputManager;
+import android.media.tv.TvTrackInfo;
 import android.media.tv.TvView;
 import android.net.Uri;
 import android.os.Build;
@@ -20,6 +21,7 @@ import android.os.Looper;
 import android.view.KeyEvent;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.AdapterView;
 import android.widget.BaseAdapter;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
@@ -52,8 +54,8 @@ public class MainActivity extends Activity {
     private TextView numberDisplay;
 
     private int currentIndex = -1;
-    private int highlightedIndex = -1;
     private StringBuilder numberBuffer = new StringBuilder();
+    private AudioManager audioManager;
 
     static class ChannelItem {
         long id;
@@ -73,6 +75,8 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         hideSystemUi();
+
+        audioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
 
         root = new FrameLayout(this);
         root.setBackgroundColor(Color.BLACK);
@@ -131,6 +135,13 @@ public class MainActivity extends Activity {
             @Override
             public void onVideoAvailable(String inputId) {
                 hideStatus();
+                unmuteAndEnableAudio();
+            }
+
+            @Override
+            public void onTracksChanged(String inputId, List<TvTrackInfo> tracks) {
+                super.onTracksChanged(inputId, tracks);
+                unmuteAndEnableAudio();
             }
 
             @Override
@@ -140,17 +151,31 @@ public class MainActivity extends Activity {
         });
     }
 
-    private void loadTvSystem() {
+    private void unmuteAndEnableAudio() {
         try {
-            TvInputManager im = (TvInputManager) getSystemService(Context.TV_INPUT_SERVICE);
-            if (im == null) {
-                showStatus("TV Input Manager hatası!");
-                return;
+            if (tvView != null) {
+                tvView.setStreamVolume(1.0f);
             }
-            loadChannels();
-        } catch (Exception e) {
-            showStatus("Sistem hatası: " + e.getMessage());
-        }
+            if (audioManager != null) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    AudioAttributes playbackAttributes = new AudioAttributes.Builder()
+                            .setUsage(AudioAttributes.USAGE_MEDIA)
+                            .setContentType(AudioAttributes.CONTENT_TYPE_MOVIE)
+                            .build();
+                    AudioFocusRequest focusRequest = new AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
+                            .setAudioAttributes(playbackAttributes)
+                            .build();
+                    audioManager.requestAudioFocus(focusRequest);
+                } else {
+                    audioManager.requestAudioFocus(null, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN);
+                }
+                audioManager.setStreamMute(AudioManager.STREAM_MUSIC, false);
+            }
+        } catch (Exception ignored) {}
+    }
+
+    private void loadTvSystem() {
+        loadChannels();
     }
 
     private void loadChannels() {
@@ -221,16 +246,11 @@ public class MainActivity extends Activity {
 
         try {
             tvView.tune(c.inputId, channelUri);
-
-            AudioManager am = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
-            if (am != null) {
-                am.requestAudioFocus(null, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN);
-            }
-            if (tvView != null) {
-                tvView.setStreamVolume(1.0f);
-            }
-
+            unmuteAndEnableAudio();
             showChannelInfo(c);
+            if (adapter != null) {
+                adapter.notifyDataSetChanged();
+            }
         } catch (Exception e) {
             showStatus("Kanal açılamadı: " + e.getMessage());
         }
@@ -328,10 +348,10 @@ public class MainActivity extends Activity {
         channelPanel = new LinearLayout(this);
         channelPanel.setOrientation(LinearLayout.VERTICAL);
         channelPanel.setPadding(dp(16), dp(16), dp(16), dp(16));
-        channelPanel.setBackgroundColor(Color.parseColor("#F0101010"));
+        channelPanel.setBackgroundColor(Color.parseColor("#EE151515"));
 
         TextView panelSummary = new TextView(this);
-        panelSummary.setText("KANALLAR (OK ile seç)");
+        panelSummary.setText("KANALLAR (OK ile aç / kapat)");
         panelSummary.setTextColor(Color.parseColor("#FFD700"));
         panelSummary.setTextSize(16);
         panelSummary.setPadding(0, 0, 0, dp(10));
@@ -341,12 +361,25 @@ public class MainActivity extends Activity {
         adapter = new ChannelAdapter();
         channelListView.setAdapter(adapter);
         channelListView.setDividerHeight(dp(1));
+        channelListView.setFocusable(true);
+        channelListView.setFocusableInTouchMode(true);
+        channelListView.setChoiceMode(ListView.CHOICE_MODE_SINGLE);
+
+        channelListView.setOnItemClickListener(new AdapterView.OnItemClickListener() {
+            @Override
+            public void onItemClick(AdapterView<?> parent, View view, int position, long id) {
+                tuneChannel(position);
+                channelPanel.setVisibility(View.GONE);
+                tvView.requestFocus();
+            }
+        });
+
         channelPanel.addView(channelListView, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT));
 
         FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
-                dp(320),
+                dp(340),
                 ViewGroup.LayoutParams.MATCH_PARENT);
         channelPanel.setVisibility(View.GONE);
         root.addView(channelPanel, lp);
@@ -386,13 +419,12 @@ public class MainActivity extends Activity {
             TextView tv = (TextView) view;
             if (tv == null) {
                 tv = new TextView(MainActivity.this);
-                tv.setPadding(dp(12), dp(10), dp(12), dp(10));
-                tv.setTextSize(15);
+                tv.setPadding(dp(14), dp(12), dp(14), dp(12));
+                tv.setTextSize(16);
             }
             ChannelItem item = channels.get(i);
-            tv.setText(item.number + "  " + item.name);
+            tv.setText(item.number + "   " + item.name);
             tv.setTextColor(i == currentIndex ? Color.parseColor("#FFD700") : Color.WHITE);
-            tv.setBackgroundColor(i == highlightedIndex ? Color.parseColor("#33FFFFFF") : Color.TRANSPARENT);
             return tv;
         }
     }
@@ -401,10 +433,30 @@ public class MainActivity extends Activity {
     public boolean dispatchKeyEvent(KeyEvent event) {
         if (event.getAction() == KeyEvent.ACTION_DOWN) {
             int code = event.getKeyCode();
+
             if (code >= KeyEvent.KEYCODE_0 && code <= KeyEvent.KEYCODE_9) {
                 handleNumber(code - KeyEvent.KEYCODE_0);
                 return true;
             }
+
+            if (channelPanel.getVisibility() == View.VISIBLE) {
+                if (code == KeyEvent.KEYCODE_BACK || code == KeyEvent.KEYCODE_DPAD_LEFT) {
+                    channelPanel.setVisibility(View.GONE);
+                    tvView.requestFocus();
+                    return true;
+                }
+                if (code == KeyEvent.KEYCODE_DPAD_CENTER || code == KeyEvent.KEYCODE_ENTER) {
+                    int pos = channelListView.getSelectedItemPosition();
+                    if (pos != AdapterView.INVALID_POSITION) {
+                        tuneChannel(pos);
+                        channelPanel.setVisibility(View.GONE);
+                        tvView.requestFocus();
+                        return true;
+                    }
+                }
+                return super.dispatchKeyEvent(event);
+            }
+
             switch (code) {
                 case KeyEvent.KEYCODE_DPAD_UP:
                 case KeyEvent.KEYCODE_CHANNEL_UP:
@@ -416,18 +468,13 @@ public class MainActivity extends Activity {
                     return true;
                 case KeyEvent.KEYCODE_DPAD_CENTER:
                 case KeyEvent.KEYCODE_ENTER:
-                    if (channelPanel.getVisibility() == View.VISIBLE) {
-                        channelPanel.setVisibility(View.GONE);
-                    } else {
-                        channelPanel.setVisibility(View.VISIBLE);
+                case KeyEvent.KEYCODE_DPAD_RIGHT:
+                    channelPanel.setVisibility(View.VISIBLE);
+                    channelListView.requestFocus();
+                    if (currentIndex >= 0 && currentIndex < channels.size()) {
+                        channelListView.setSelection(currentIndex);
                     }
                     return true;
-                case KeyEvent.KEYCODE_BACK:
-                    if (channelPanel.getVisibility() == View.VISIBLE) {
-                        channelPanel.setVisibility(View.GONE);
-                        return true;
-                    }
-                    break;
             }
         }
         return super.dispatchKeyEvent(event);
@@ -461,6 +508,7 @@ public class MainActivity extends Activity {
     protected void onResume() {
         super.onResume();
         hideSystemUi();
+        unmuteAndEnableAudio();
     }
 
     @Override
