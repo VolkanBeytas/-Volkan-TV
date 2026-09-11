@@ -77,7 +77,9 @@ public class MainActivity extends Activity {
         hideSystemUi();
 
         audioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
-        setVolumeControlStream(AudioManager.STREAM_MUSIC);
+        
+        // Donanım sesini doğrudan sistem akışına bağla
+        setVolumeControlStream(AudioManager.USE_DEFAULT_STREAM_TYPE);
 
         root = new FrameLayout(this);
         root.setBackgroundColor(Color.BLACK);
@@ -136,13 +138,30 @@ public class MainActivity extends Activity {
             @Override
             public void onVideoAvailable(String inputId) {
                 hideStatus();
-                forceHardwareAudioRouting();
+                unmuteHardwareAudio();
             }
 
             @Override
             public void onTracksChanged(String inputId, List<TvTrackInfo> tracks) {
                 super.onTracksChanged(inputId, tracks);
-                forceHardwareAudioRouting();
+                // Gelen yayın ses kanallarını otomatik aktif et
+                if (tracks != null) {
+                    for (TvTrackInfo track : tracks) {
+                        if (track.getType() == TvTrackInfo.TYPE_AUDIO) {
+                            tvView.selectTrack(TvTrackInfo.TYPE_AUDIO, track.getId());
+                            break;
+                        }
+                    }
+                }
+                unmuteHardwareAudio();
+            }
+
+            @Override
+            public void onTrackSelected(String inputId, int type, String trackId) {
+                super.onTrackSelected(inputId, type, trackId);
+                if (type == TvTrackInfo.TYPE_AUDIO) {
+                    unmuteHardwareAudio();
+                }
             }
 
             @Override
@@ -152,22 +171,29 @@ public class MainActivity extends Activity {
         });
     }
 
-    private void forceHardwareAudioRouting() {
+    // TELEVİZYONUN DONANIM SES KİLİDİNİ ÇÖZEN METOT
+    private void unmuteHardwareAudio() {
         try {
             if (tvView != null) {
                 tvView.setStreamVolume(1.0f);
-                tvView.setTimeShiftPositionCallback(null);
-
-                List<TvTrackInfo> tracks = tvView.getTracks(TvTrackInfo.TYPE_AUDIO);
-                if (tracks != null && !tracks.isEmpty()) {
-                    for (TvTrackInfo track : tracks) {
-                        tvView.selectTrack(TvTrackInfo.TYPE_AUDIO, track.getId());
-                        break;
-                    }
-                }
             }
 
             if (audioManager != null) {
+                // TV altyapısındaki tüm olası ses akışlarının Mute durumunu kaldır
+                int[] streams = {
+                        AudioManager.STREAM_MUSIC,
+                        AudioManager.STREAM_SYSTEM,
+                        AudioManager.STREAM_VOICE_CALL,
+                        AudioManager.STREAM_RING
+                };
+
+                for (int s : streams) {
+                    try {
+                        audioManager.setStreamMute(s, false);
+                    } catch (Exception ignored) {}
+                }
+
+                // Global Audio Focus isteği
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                     AudioAttributes playbackAttributes = new AudioAttributes.Builder()
                             .setUsage(AudioAttributes.USAGE_MEDIA)
@@ -175,15 +201,11 @@ public class MainActivity extends Activity {
                             .build();
                     AudioFocusRequest focusRequest = new AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
                             .setAudioAttributes(playbackAttributes)
-                            .setAcceptsDelayedFocusGain(true)
                             .build();
                     audioManager.requestAudioFocus(focusRequest);
                 } else {
                     audioManager.requestAudioFocus(null, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN);
                 }
-
-                int maxVol = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC);
-                audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, maxVol, 0);
             }
         } catch (Exception ignored) {}
     }
@@ -260,7 +282,7 @@ public class MainActivity extends Activity {
 
         try {
             tvView.tune(c.inputId, channelUri);
-            forceHardwareAudioRouting();
+            unmuteHardwareAudio();
             showChannelInfo(c);
             if (adapter != null) {
                 adapter.notifyDataSetChanged();
@@ -448,15 +470,9 @@ public class MainActivity extends Activity {
         if (event.getAction() == KeyEvent.ACTION_DOWN) {
             int code = event.getKeyCode();
 
-            if (code == KeyEvent.KEYCODE_VOLUME_UP) {
-                if (audioManager != null) audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_RAISE, AudioManager.FLAG_SHOW_UI);
-                return true;
-            } else if (code == KeyEvent.KEYCODE_VOLUME_DOWN) {
-                if (audioManager != null) audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_LOWER, AudioManager.FLAG_SHOW_UI);
-                return true;
-            } else if (code == KeyEvent.KEYCODE_VOLUME_MUTE) {
-                if (audioManager != null) audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_TOGGLE_MUTE, AudioManager.FLAG_SHOW_UI);
-                return true;
+            // Kumandadaki fiziksel ses tuşları basıldığında donanım sesini artır/azalt
+            if (code == KeyEvent.KEYCODE_VOLUME_UP || code == KeyEvent.KEYCODE_VOLUME_DOWN || code == KeyEvent.KEYCODE_VOLUME_MUTE) {
+                return false; // Sistem varsayılan TV ses katmanına bıraksın
             }
 
             if (code >= KeyEvent.KEYCODE_0 && code <= KeyEvent.KEYCODE_9) {
@@ -533,7 +549,7 @@ public class MainActivity extends Activity {
     protected void onResume() {
         super.onResume();
         hideSystemUi();
-        forceHardwareAudioRouting();
+        unmuteHardwareAudio();
     }
 
     @Override
