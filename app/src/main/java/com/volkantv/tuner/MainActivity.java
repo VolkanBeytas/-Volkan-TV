@@ -135,13 +135,13 @@ public class MainActivity extends Activity {
             @Override
             public void onVideoAvailable(String inputId) {
                 hideStatus();
-                unmuteAndEnableAudio();
+                forceEnableHardwareAudio();
             }
 
             @Override
             public void onTracksChanged(String inputId, List<TvTrackInfo> tracks) {
                 super.onTracksChanged(inputId, tracks);
-                unmuteAndEnableAudio();
+                forceEnableHardwareAudio();
             }
 
             @Override
@@ -151,11 +151,22 @@ public class MainActivity extends Activity {
         });
     }
 
-    private void unmuteAndEnableAudio() {
+    // DONANIM SESİNİ ZORLA TETİKLEYEN VE SES İZİNİ SEÇEN BLOK
+    private void forceEnableHardwareAudio() {
         try {
             if (tvView != null) {
                 tvView.setStreamVolume(1.0f);
+
+                // Kanalın içindeki mevcut ses izlerini bulup aktif yapıyoruz
+                List<TvTrackInfo> tracks = tvView.getTracks(TvTrackInfo.TYPE_AUDIO);
+                if (tracks != null && !tracks.isEmpty()) {
+                    for (TvTrackInfo track : tracks) {
+                        tvView.selectTrack(TvTrackInfo.TYPE_AUDIO, track.getId());
+                        break;
+                    }
+                }
             }
+
             if (audioManager != null) {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                     AudioAttributes playbackAttributes = new AudioAttributes.Builder()
@@ -246,7 +257,7 @@ public class MainActivity extends Activity {
 
         try {
             tvView.tune(c.inputId, channelUri);
-            unmuteAndEnableAudio();
+            forceEnableHardwareAudio();
             showChannelInfo(c);
             if (adapter != null) {
                 adapter.notifyDataSetChanged();
@@ -351,7 +362,7 @@ public class MainActivity extends Activity {
         channelPanel.setBackgroundColor(Color.parseColor("#EE151515"));
 
         TextView panelSummary = new TextView(this);
-        panelSummary.setText("KANALLAR (OK ile aç / kapat)");
+        panelSummary.setText("KANALLAR (OK ile seç)");
         panelSummary.setTextColor(Color.parseColor("#FFD700"));
         panelSummary.setTextSize(16);
         panelSummary.setPadding(0, 0, 0, dp(10));
@@ -434,11 +445,24 @@ public class MainActivity extends Activity {
         if (event.getAction() == KeyEvent.ACTION_DOWN) {
             int code = event.getKeyCode();
 
+            // Kumanda ses tuşlarını doğrudan Android donanımına ilet
+            if (code == KeyEvent.KEYCODE_VOLUME_UP) {
+                if (audioManager != null) audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_RAISE, AudioManager.FLAG_SHOW_UI);
+                return true;
+            } else if (code == KeyEvent.KEYCODE_VOLUME_DOWN) {
+                if (audioManager != null) audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_LOWER, AudioManager.FLAG_SHOW_UI);
+                return true;
+            } else if (code == KeyEvent.KEYCODE_VOLUME_MUTE) {
+                if (audioManager != null) audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_TOGGLE_MUTE, AudioManager.FLAG_SHOW_UI);
+                return true;
+            }
+
             if (code >= KeyEvent.KEYCODE_0 && code <= KeyEvent.KEYCODE_9) {
                 handleNumber(code - KeyEvent.KEYCODE_0);
                 return true;
             }
 
+            // Menü açıkken kumanda kontrolü
             if (channelPanel.getVisibility() == View.VISIBLE) {
                 if (code == KeyEvent.KEYCODE_BACK || code == KeyEvent.KEYCODE_DPAD_LEFT) {
                     channelPanel.setVisibility(View.GONE);
@@ -457,6 +481,7 @@ public class MainActivity extends Activity {
                 return super.dispatchKeyEvent(event);
             }
 
+            // Menü kapalıyken kanal geçişleri
             switch (code) {
                 case KeyEvent.KEYCODE_DPAD_UP:
                 case KeyEvent.KEYCODE_CHANNEL_UP:
@@ -508,7 +533,7 @@ public class MainActivity extends Activity {
     protected void onResume() {
         super.onResume();
         hideSystemUi();
-        unmuteAndEnableAudio();
+        forceEnableHardwareAudio();
     }
 
     @Override
@@ -519,3 +544,4 @@ public class MainActivity extends Activity {
         }
     }
 }
+
