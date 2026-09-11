@@ -77,6 +77,7 @@ public class MainActivity extends Activity {
         hideSystemUi();
 
         audioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
+        setVolumeControlStream(AudioManager.STREAM_MUSIC);
 
         root = new FrameLayout(this);
         root.setBackgroundColor(Color.BLACK);
@@ -135,13 +136,13 @@ public class MainActivity extends Activity {
             @Override
             public void onVideoAvailable(String inputId) {
                 hideStatus();
-                forceEnableHardwareAudio();
+                forceHardwareAudioRouting();
             }
 
             @Override
             public void onTracksChanged(String inputId, List<TvTrackInfo> tracks) {
                 super.onTracksChanged(inputId, tracks);
-                forceEnableHardwareAudio();
+                forceHardwareAudioRouting();
             }
 
             @Override
@@ -151,13 +152,12 @@ public class MainActivity extends Activity {
         });
     }
 
-    // DONANIM SESİNİ ZORLA TETİKLEYEN VE SES İZİNİ SEÇEN BLOK
-    private void forceEnableHardwareAudio() {
+    private void forceHardwareAudioRouting() {
         try {
             if (tvView != null) {
                 tvView.setStreamVolume(1.0f);
+                tvView.setTimeShiftPositionCallback(null);
 
-                // Kanalın içindeki mevcut ses izlerini bulup aktif yapıyoruz
                 List<TvTrackInfo> tracks = tvView.getTracks(TvTrackInfo.TYPE_AUDIO);
                 if (tracks != null && !tracks.isEmpty()) {
                     for (TvTrackInfo track : tracks) {
@@ -175,12 +175,15 @@ public class MainActivity extends Activity {
                             .build();
                     AudioFocusRequest focusRequest = new AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
                             .setAudioAttributes(playbackAttributes)
+                            .setAcceptsDelayedFocusGain(true)
                             .build();
                     audioManager.requestAudioFocus(focusRequest);
                 } else {
                     audioManager.requestAudioFocus(null, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN);
                 }
-                audioManager.setStreamMute(AudioManager.STREAM_MUSIC, false);
+
+                int maxVol = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC);
+                audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, maxVol, 0);
             }
         } catch (Exception ignored) {}
     }
@@ -257,7 +260,7 @@ public class MainActivity extends Activity {
 
         try {
             tvView.tune(c.inputId, channelUri);
-            forceEnableHardwareAudio();
+            forceHardwareAudioRouting();
             showChannelInfo(c);
             if (adapter != null) {
                 adapter.notifyDataSetChanged();
@@ -445,7 +448,6 @@ public class MainActivity extends Activity {
         if (event.getAction() == KeyEvent.ACTION_DOWN) {
             int code = event.getKeyCode();
 
-            // Kumanda ses tuşlarını doğrudan Android donanımına ilet
             if (code == KeyEvent.KEYCODE_VOLUME_UP) {
                 if (audioManager != null) audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_RAISE, AudioManager.FLAG_SHOW_UI);
                 return true;
@@ -462,7 +464,6 @@ public class MainActivity extends Activity {
                 return true;
             }
 
-            // Menü açıkken kumanda kontrolü
             if (channelPanel.getVisibility() == View.VISIBLE) {
                 if (code == KeyEvent.KEYCODE_BACK || code == KeyEvent.KEYCODE_DPAD_LEFT) {
                     channelPanel.setVisibility(View.GONE);
@@ -481,7 +482,6 @@ public class MainActivity extends Activity {
                 return super.dispatchKeyEvent(event);
             }
 
-            // Menü kapalıyken kanal geçişleri
             switch (code) {
                 case KeyEvent.KEYCODE_DPAD_UP:
                 case KeyEvent.KEYCODE_CHANNEL_UP:
@@ -533,7 +533,7 @@ public class MainActivity extends Activity {
     protected void onResume() {
         super.onResume();
         hideSystemUi();
-        forceEnableHardwareAudio();
+        forceHardwareAudioRouting();
     }
 
     @Override
@@ -544,4 +544,3 @@ public class MainActivity extends Activity {
         }
     }
 }
-
